@@ -1,0 +1,5 @@
+SELECT DATA_TYPE , ' cast ( null as ' + DATA_TYPE+ 
+COALESCE(CASE WHEN DATA_TYPE='varchar' THEN  ' ( '+ CAST(CHARACTER_MAXIMUM_LENGTH AS VARCHAR(20)) + ' ) '  END,'')
+ + ' ) as ' + COLUMN_NAME + ','
+ FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME=
+'livewell_medclaimoutput_core' 
