@@ -1,0 +1,141 @@
+
+USE SSISDB
+
+IF OBJECT_ID('tempdb..#SsisConfigs') IS NOT NULL
+	DROP TABLE #SsisConfigs
+
+CREATE TABLE #SsisConfigs
+(
+	Id INT IDENTITY(1,1)
+	, FolderName NVARCHAR(128)
+	, ProjectName NVARCHAR(128)
+	, PackageName NVARCHAR(260)
+	, ObjType SMALLINT
+	, ValType CHAR(1)
+	, ParameterName NVARCHAR(128)
+	, ParameterValue SQL_VARIANT
+)
+
+DECLARE @environmentName NVARCHAR(128)		--The name of the environment being referenced that holds the configuration values for the SSIS Project/Package.
+	, @environmentFolder NVARCHAR(128)		--The name of the folder in which the environment that being referenced is located.
+	, @environmentReferenceLocation CHAR(1) --Indicates whether the environment can be located in the same folder as the project (relative reference) or in a different folder (absolute reference).
+												--R=Indicates a relative reference
+												--A=Indicate an absolute reference
+	, @folderName NVARCHAR(128)				--The catalog folder where the SSIS project is deployed.
+	, @projectName NVARCHAR(128)			--The name of the SSIS project that is being configured.
+	, @packageName NVARCHAR(260)			--The name of the package. This argument required when the parameter is a package parameter.
+	, @objType SMALLINT						--The type of parameter.
+												--20=Project parameter
+												--30=Package parameter
+	, @valType CHAR(1)						--The type of parameter value.
+												--R=Value is the name of an Environment Variable
+												--V=Value is a literal value that will be used by default if no other values are assigned prior to execution
+	, @parameterName NVARCHAR(128)			--The name of the parameter.
+	, @parameterValue SQL_VARIANT			--The value of the parameter.
+
+/*****************************************************************************
+Insert SSIS Configuration records for the deployed SSIS Project/Package
+*****************************************************************************/
+SET @folderName = N'ProductAllocation'
+SET @projectName = N'PlanningAndAllocationSalesDataAALAPH'
+SET @packageName = N'PlanningAndAllocationSalesDataAALAPH.dtsx'
+SET @objType = 20
+SET @valType = 'R'
+
+INSERT INTO #SsisConfigs
+        ( FolderName ,
+          ProjectName ,
+          PackageName ,
+          ObjType ,
+          ValType ,
+          ParameterName ,
+          ParameterValue
+        )
+SELECT @folderName, @projectName, @packageName, @objType, @valType, N'ProcessRoot', N'_GLOBAL_ProcessRoot'
+UNION
+SELECT @folderName, @projectName, @packageName, @objType, @valType, N'ArchiveRoot', N'_GLOBAL_ArchiveRoot'
+UNION
+SELECT @folderName, @projectName, @packageName, @objType, @valType, N'ErrorRoot', N'_GLOBAL_ErrorRoot'
+UNION
+SELECT @folderName, @projectName, @packageName, @objType, @valType, N'LogPath', N'_GLOBAL_LogPath'
+UNION
+SELECT @folderName, @projectName, @packageName, @objType, @valType, N'CM.DB_BMS_BMS_OLEDB.ConnectionString', N'_GLOBAL_DB_BMS_BMS_OLEDB'
+UNION
+SELECT @folderName, @projectName, @packageName, @objType, @valType, N'CM.DB_BMS_HatWorld_OLEDB.ConnectionString', N'_GLOBAL_DB_BMS_HatWorld_OLEDB'
+UNION
+SELECT @folderName, @projectName, @packageName, @objType, @valType, N'CM.DB_BMS_SSISMETADATA_OLEDB.ConnectionString', N'_GLOBAL_DB_BMS_SSISMETADATA_OLEDB'
+UNION
+SELECT @folderName, @projectName, @packageName, @objType, @valType, N'DocumentationLocation', N'PlanningAndAllocationSalesDataAALAPH_DocumentationLocation'
+UNION
+SELECT @folderName, @projectName, @packageName, @objType, @valType, N'ProcessSubRoot', N'PlanningAndAllocationSalesDataAALAPH_ProcessSubRoot'
+UNION
+SELECT @folderName, @projectName, @packageName, @objType, @valType, N'SelectStoreList', N'PlanningAndAllocationSalesDataAALAPH_SelectStoreList'
+UNION
+SELECT @folderName, @projectName, @packageName, @objType, @valType, N'RetentionDays', N'PlanningAndAllocationSalesDataAALAPH_RetentionDays'
+
+--SELECT * FROM #SsisConfigs
+
+
+
+
+/*****************************************************************************
+Add environment references and populate configurations based on above values
+*****************************************************************************/
+
+---------------------------------------------------------
+SELECT @environmentName = e.name
+	, @environmentFolder = f.name
+	, @environmentReferenceLocation = 'A'
+FROM catalog.environments e
+JOIN catalog.folders f ON e.folder_id = f.folder_id
+---------------------------------------------------------
+
+IF NOT EXISTS (
+	SELECT *
+	FROM internal.environment_references er
+	WHERE er.project_id = (SELECT pr.project_id FROM catalog.projects pr WHERE pr.name = @projectName)
+	AND er.environment_folder_name = @environmentFolder
+	AND er.environment_name = @environmentName
+	AND er.reference_type = @environmentReferenceLocation
+)
+BEGIN
+	--Add a reference to the Environment to the deployed SSIS project
+	----https://msdn.microsoft.com/en-us/library/ff878036(v=sql.110).aspx
+	DECLARE @Ref_Id bigint
+	EXEC SSISDB.catalog.create_environment_reference
+		@folder_name = @folderName,
+		@project_name = @projectName,
+		@environment_name = @environmentName,
+		@reference_type = @environmentReferenceLocation,
+		@environment_folder_name = @environmentFolder,
+		@reference_id = @Ref_Id OUTPUT
+END
+
+DECLARE @configId INT
+WHILE EXISTS (SELECT * FROM #SsisConfigs WHERE FolderName = @folderName AND ProjectName = @projectName AND PackageName = @packageName)
+BEGIN
+	SELECT TOP 1
+		@configId = Id ,
+		@objType = ObjType ,
+		@valType = ValType ,
+		@parameterName = ParameterName ,
+		@parameterValue = ParameterValue
+	FROM #SsisConfigs
+	WHERE FolderName = @folderName AND ProjectName = @projectName AND PackageName = @packageName
+
+	--Configure the project/package parameters of the deployed SSIS project
+	----https://msdn.microsoft.com/en-us/library/ff878162(v=sql.110).aspx
+	EXEC [SSISDB].[catalog].[set_object_parameter_value]
+		@object_type = @objType,
+		@parameter_name = @parameterName,
+		@object_name = @packageName,
+		@folder_name = @folderName,
+		@project_name = @projectName,
+		@value_type = @valType,
+		@parameter_value = @parameterValue
+
+	DELETE #SsisConfigs WHERE Id = @configId
+END
+
+IF OBJECT_ID('tempdb..#SsisConfigs') IS NOT NULL
+	DROP TABLE #SsisConfigs
