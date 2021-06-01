@@ -1,0 +1,244 @@
+USE SSISDB;
+
+/* Instructions
+
+1. Set the environment.
+2. Generate INSERT statements from existing catalog.
+3. Paste the results in the marked area.
+4. Execute the entire script.
+
+By default, this script will create any new variables that are added and update the values
+of any existing variables.
+
+To remove a Variable, set the IsDelete = 1.  By creating an insert statement with IsDelete=1, 
+the logic directs the variable to the procedure catalog.delete_environment_variable.  The intent 
+is to leave the variable in the script.  IsDelete is important for the lower levels as names 
+tend to shift in flight.  :)
+
+*/
+BEGIN TRANSACTION;
+-------------------------------------------------------------------------------------------------
+--1. Set the environment
+-------------------------------------------------------------------------------------------------
+SET NOCOUNT ON;
+
+DECLARE @Environment AS NVARCHAR(128);
+
+SET @Environment = N'PRD';
+
+-------------------------------------------------------------------------------------------------
+-------------------------------------------------------------------------------------------------
+DECLARE @EnvironmentFolder AS VARCHAR(20)
+        , @Sensitive       AS BIT;
+
+SELECT @EnvironmentFolder = 'Environment'
+     , @Sensitive = 0;
+
+IF OBJECT_ID('tempdb..#EnvironmentVariables') IS NOT NULL
+    DROP TABLE #EnvironmentVariables;
+
+CREATE TABLE #EnvironmentVariables
+(
+    Id             INT IDENTITY( 1, 1 )
+  , VarName        NVARCHAR(128)
+  , VarDescription NVARCHAR(1024)
+  , DataType       NVARCHAR(128)
+  , Value          SQL_VARIANT
+  , IsDelete       BIT NOT NULL
+);
+
+-------------------------------------------------------------------------------------------------
+--2. Generate INSERT statements from existing catalog
+-------------------------------------------------------------------------------------------------
+/* --Generate INSERT statements from existing catalog
+
+USE SSISDB;
+
+SELECT 'INSERT INTO #EnvironmentVariables
+        ( VarName
+        , VarDescription
+        , DataType
+        , Value
+		, IsDelete
+        )
+VALUES (N''' + REPLACE(NAME, '''', '''''') + '''  -- VarName - nvarchar(128)
+		, N''' + REPLACE(description, '''', '''''')
+       + '''  -- VarDescription - nvarchar(1024)
+		, N''' + type + '''  -- DataType - nvarchar(128)
+		, ' + (CASE
+                    WHEN type = 'Boolean'
+                        THEN 'CAST(' + CAST(value AS NVARCHAR(1024)) + ' AS BIT)'
+                    WHEN type = 'DateTime'
+                        THEN 'CAST(''' + CONVERT(NVARCHAR(1024), value, 121) + ''' AS DATETIME)'
+                    ELSE 'CAST(''' + REPLACE(CAST(value AS NVARCHAR(1024)), '''', '''''') + ''' AS NVARCHAR(1024))'
+                END) + ' -- Value - sql_variant (must cast to accurate datatype in order for the proc to identify the base datatype of the SQL_VARIANT)
+		, ''' + CAST(0 AS NVARCHAR(1)) + ''' -- IsDelete - BIT
+);
+
+'
+FROM   [SSISDB].[internal].[environment_variables]
+WHERE name IN ('MyProcess_DocumentationLocation', 'MyProcess_ProcessSubRoot', 'MyProcess_RetentionDays')
+ORDER BY name;
+
+*/
+-------------------------------------------------------------------------------------------------
+--3. Paste the results here
+-------------------------------------------------------------------------------------------------
+--Paste the results here
+INSERT INTO #EnvironmentVariables
+        ( VarName
+        , VarDescription
+        , DataType
+        , Value
+		, IsDelete
+        )
+VALUES (N'PlanningAndAllocationSalesDataAALAPH_DocumentationLocation'  -- VarName - nvarchar(128)
+		, N'Knowledge base article with documentation'  -- VarDescription - nvarchar(1024)
+		, N'String'  -- DataType - nvarchar(128)
+		, CAST('http://it.hatworld.com/dev/dbs/Pages/SQLKB0000.aspx' AS NVARCHAR(1024)) -- Value - sql_variant (must cast to accurate datatype in order for the proc to identify the base datatype of the SQL_VARIANT)
+		, '0' -- IsDelete - BIT
+);
+
+INSERT INTO #EnvironmentVariables
+        ( VarName
+        , VarDescription
+        , DataType
+        , Value
+		, IsDelete
+        )
+VALUES (N'PlanningAndAllocationSalesDataAALAPH_ProcessSubRoot'  -- VarName - nvarchar(128)
+		, N'solution\process group\process'  -- VarDescription - nvarchar(1024)
+		, N'String'  -- DataType - nvarchar(128)
+		, CAST('ProductAllocation\Allocation\PlanningAndAllocationSalesDataAALAPH\' AS NVARCHAR(1024)) -- Value - sql_variant (must cast to accurate datatype in order for the proc to identify the base datatype of the SQL_VARIANT)
+		, '0' -- IsDelete - BIT
+);
+
+INSERT INTO #EnvironmentVariables
+        ( VarName
+        , VarDescription
+        , DataType
+        , Value
+		, IsDelete
+        )
+VALUES (N'PlanningAndAllocationSalesDataAALAPH_RetentionDays'  -- VarName - nvarchar(128)
+		, N'Number of days archived files are to be retained'  -- VarDescription - nvarchar(1024)
+		, N'Int32'  -- DataType - nvarchar(128)
+		, 30 -- Value - sql_variant (must cast to accurate datatype in order for the proc to identify the base datatype of the SQL_VARIANT)
+		, '0' -- IsDelete - BIT
+);
+
+INSERT INTO #EnvironmentVariables
+        ( VarName
+        , VarDescription
+        , DataType
+        , Value
+		, IsDelete
+        )
+VALUES (N'PlanningAndAllocationSalesDataAALAPH_SelectStoreList'  -- VarName - nvarchar(128)
+		, N'Select statment to get the Store List'  -- VarDescription - nvarchar(1024)
+		, N'String'  -- DataType - nvarchar(128)
+		, CAST('Select StoreId FROM Hatworld.dbo.Stores ORDER BY StoreId' AS NVARCHAR(1024)) -- Value - sql_variant (must cast to accurate datatype in order for the proc to identify the base datatype of the SQL_VARIANT)
+		, '0' -- IsDelete - BIT
+);
+-------------------------------------------------------------------------------------------------
+-------------------------------------------------------------------------------------------------
+--Verify environment variables
+--SELECT * FROM #EnvironmentVariables
+DECLARE @Index          INT
+        , @Name         AS NVARCHAR(128)
+        , @Type         AS NVARCHAR(128)
+        , @Value        AS SQL_VARIANT
+        , @Description  AS NVARCHAR(1024)
+        , @CreatedCount AS INT
+        , @UpdatedCount AS INT
+        , @DeletedCount AS INT
+        , @IsDelete     AS BIT;
+
+SET @CreatedCount=0;
+SET @UpdatedCount=0;
+SET @DeletedCount =0;
+
+--Create environment variables
+WHILE EXISTS (SELECT *
+              FROM   #EnvironmentVariables)
+    BEGIN
+        SELECT TOP 1 @Index = Id
+                   , @Name = VarName
+                   , @Type = DataType
+                   , @Value = Value
+                   , @Description = VarDescription
+                   , @IsDelete = IsDelete
+        FROM   #EnvironmentVariables
+        ORDER  BY Id ASC;
+
+        BEGIN TRY
+            IF NOT EXISTS (SELECT *
+                           FROM   internal.environment_variables v
+                                  JOIN internal.environments e
+                                    ON e.environment_id = v.environment_id
+                           WHERE  NAME = @name
+                                  AND e.environment_name = @Environment)
+               AND @IsDelete = 0
+                BEGIN
+					PRINT N'INSERT: ' + @name;
+                    EXEC catalog.Create_environment_variable @EnvironmentFolder
+                                                           , @Environment
+                                                           , @Name
+                                                           , @Type
+                                                           , @Sensitive
+                                                           , @Value
+                                                           , @Description;
+
+                    SET @CreatedCount=@CreatedCount + 1;
+                END;
+            ELSE IF EXISTS (SELECT *
+                       FROM   internal.environment_variables v
+                              JOIN internal.environments e
+                                ON e.environment_id = v.environment_id
+                       WHERE  NAME = @name
+                              AND e.environment_name = @Environment)
+               AND @IsDelete = 1
+                BEGIN
+					PRINT N'DELETE: ' + @name;
+                    EXEC catalog.delete_environment_variable @folder_name      = @EnvironmentFolder
+                                                           , @environment_name = @Environment
+                                                           , @variable_name    = @Name;
+
+                    SET @DeletedCount=@DeletedCount + 1;
+                END;
+            ELSE IF EXISTS (SELECT *
+                       FROM   internal.environment_variables v
+                              JOIN internal.environments e
+                                ON e.environment_id = v.environment_id
+                       WHERE  NAME = @name
+                              AND e.environment_name = @Environment
+                              AND v.value != @value)
+               AND @IsDelete = 0
+                BEGIN
+					PRINT N'UPDATE: ' + @name;
+                    EXEC catalog.set_environment_variable_value @folder_name      = @EnvironmentFolder -- nvarchar(128)
+                                                              , @environment_name = @Environment -- nvarchar(128)
+                                                              , @variable_name    = @Name -- nvarchar(128)
+                                                              , @value            = @Value; -- sql_variant
+                    SET @UpdatedCount=@UpdatedCount + 1;
+                END;
+        END TRY
+
+        BEGIN CATCH
+            SELECT @Name + N' - ' + ERROR_MESSAGE();
+        END CATCH;
+
+        DELETE FROM #EnvironmentVariables
+        WHERE  Id = @Index;
+    END;
+
+SELECT CAST(@CreatedCount AS VARCHAR(9))
+       + ' environment variables were created.';
+
+SELECT CAST(@UpdatedCount AS VARCHAR(9))
+       + ' environment variables were updated.';
+
+SELECT CAST(@DeletedCount AS VARCHAR(9))
+       + ' environment variables were deleted.'; 
+
+COMMIT TRANSACTION;
